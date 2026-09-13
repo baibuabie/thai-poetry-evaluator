@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบประเมินการท่องทำนองเสนาะ (Thai Poetry AI)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', 'Sarabun', sans-serif; }
+    .thai-text { font-family: 'Sarabun', sans-serif; }
+    .token-char { display: inline-block; padding: 1px 3px; margin: 1px; border-radius: 4px; position: relative; cursor: help; transition: all 0.15s ease; }
+    .token-char:hover { transform: scale(1.15); z-index: 10; }
+    .token-error { background-color: #FEE2E2; color: #DC2626; font-weight: 700; border-bottom: 2px solid #EF4444; }
+    .token-omission { background-color: #FEF3C7; color: #D97706; text-decoration: line-through; }
+    .token-correct { color: #334155; }
+    .view-panel { transition: opacity 0.15s ease-in-out; }
+  </style>
+</head>
+<body class="bg-[#F8FAFC] text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- 1. AUTH SCREEN: LOGIN MODAL -->
+  <div id="screen-login" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl space-y-6">
+      <div class="text-center space-y-1.5">
+        <span class="text-4xl block">📚</span>
+        <h1 class="text-2xl font-black text-slate-900 tracking-tight">เข้าสู่ระบบห้องเรียน (Classroom Login)</h1>
+        <p class="text-xs text-slate-500">ลงชื่อเข้าใช้งานระบบประเมินการท่องบทกลอน</p>
+      </div>
+
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">อีเมลผู้ใช้งาน (Email Address)</label>
+          <input type="email" id="login-email" required placeholder="teacher@gmail.com หรือ student@gmail.com" class="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5 text-[11px] text-slate-500">
+          <p class="font-bold text-slate-700">บัญชีทดสอบระบบ (Quick Profiles):</p>
+          <div class="flex justify-between items-center">
+            <span>อาจารย์ผู้สอน (Teacher):</span>
+            <button type="button" onclick="setQuickLogin('teacher@gmail.com')" class="text-indigo-600 font-semibold hover:underline">teacher@gmail.com</button>
+          </div>
+          <div class="flex justify-between items-center">
+            <span>นักเรียน ม.5/2 (Student):</span>
+            <button type="button" onclick="setQuickLogin('student@gmail.com')" class="text-indigo-600 font-semibold hover:underline">student@gmail.com</button>
+          </div>
+        </div>
+
+        <button type="submit" id="btn-login-submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs transition shadow-md">
+          เข้าสู่ระบบ (Sign In) ➔
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- NAVIGATION HEADER -->
+  <header id="app-header" class="bg-white border-b border-slate-200 sticky top-0 z-30 px-6 py-3 flex items-center justify-between shadow-sm hidden">
+    <div class="flex items-center space-x-4">
+      <button onclick="showScreen('home')" class="flex items-center space-x-2 text-slate-900 hover:text-indigo-600 transition">
+        <span class="text-2xl">📚</span>
+        <span class="font-black text-lg tracking-tight">ห้องเรียนท่องอาขยาน (ThaiPoetry AI)</span>
+      </button>
+      <div id="breadcrumb-bar" class="hidden items-center space-x-2 text-sm text-slate-400 font-medium">
+        <span>/</span>
+        <button onclick="goToClassView()" id="bc-class" class="text-indigo-600 hover:underline font-semibold thai-text"></button>
+        <span id="bc-sep" class="hidden">/</span>
+        <span id="bc-asg" class="text-slate-700 font-medium hidden thai-text"></span>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-3">
+      <div id="role-pill" class="text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">บทบาท (Role)</div>
+      <span id="user-display-name" class="text-xs font-semibold text-slate-700 thai-text">ชื่อผู้ใช้งาน</span>
+      <button onclick="logout()" class="text-xs text-rose-600 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg font-semibold transition">ออกจากระบบ (Sign Out)</button>
+    </div>
+  </header>
+
+  <!-- MAIN APP PANELS -->
+  <main id="app-main" class="flex-1 max-w-7xl w-full mx-auto p-6 hidden">
+
+    <!-- 1. HOME SCREEN: ENROLLED CLASSES -->
+    <div id="screen-home" class="view-panel space-y-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <h1 class="text-2xl font-black text-slate-900 tracking-tight" id="home-title">ชั้นเรียนของฉัน (My Classrooms)</h1>
+          <p class="text-xs text-slate-500 mt-1" id="home-subtitle">เลือกชั้นเรียนที่ลงทะเบียนเพื่อเข้าสู่บทเรียนและการบ้าน</p>
+        </div>
+      </div>
+      <div id="classes-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <!-- 2. CLASS VIEW: STREAM & ASSIGNMENTS -->
+    <div id="screen-class-view" class="view-panel hidden space-y-6">
+      <div id="class-banner" class="rounded-2xl p-6 text-white bg-gradient-to-r shadow-md flex justify-between items-end">
+        <div>
+          <h1 id="class-view-name" class="text-3xl font-black tracking-tight thai-text">ชื่อชั้นเรียน</h1>
+          <p id="class-view-subject" class="text-sm text-white/90 mt-1 font-medium thai-text">รายวิชา</p>
+        </div>
+        <button id="btn-open-create-asg" onclick="openModal('create-asg-modal')" class="bg-white text-slate-900 hover:bg-slate-50 text-xs font-bold px-4 py-2 rounded-xl shadow-sm transition">
+          ➕ สร้างการบ้านใหม่ (New Assignment)
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <h2 class="text-base font-bold text-slate-900">งานของชั้นเรียน (Classwork & Tasks)</h2>
+        <div id="asg-list-container" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- 3. ASSIGNMENT VIEW & SUBMISSION QUEUE -->
+    <div id="screen-asg-details" class="view-panel hidden space-y-6">
+      <!-- Assignment Header Card -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex justify-between items-start">
+          <div class="space-y-1">
+            <div class="flex items-center space-x-2">
+              <h2 id="asg-detail-title" class="font-bold text-slate-900 text-lg thai-text">หัวข้องาน</h2>
+              <button id="btn-edit-asg-trigger" onclick="openEditAsgModal()" class="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md font-semibold transition border border-indigo-200 hidden">
+                ✏️ ตั้งค่าเกณฑ์ (Config / Edit)
+              </button>
+            </div>
+            <p id="asg-detail-desc" class="text-xs text-slate-500 thai-text">คำชี้แจง</p>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-right">
+            <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">สัดส่วนค่าน้ำหนัก (Weights)</span>
+            <span id="asg-detail-weights" class="text-xs font-bold text-indigo-700">คำ 40% | ทำนอง 35% | จังหวะ 25%</span>
+          </div>
+        </div>
+
+        <!-- Master Teacher Audio Player -->
+        <div id="master-audio-card" class="p-3.5 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-1.5 hidden">
+          <span class="text-xs font-bold text-indigo-900">🎧 คลิป/เสียงบทกลอนครูต้นแบบ (Master Reference Audio)</span>
+          <audio id="asg-master-audio" class="w-full h-8" controls></audio>
+        </div>
+
+        <!-- Poem Full Text Box -->
+        <div class="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+          <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">📖 บทกลอนประจำบทเรียน (Reference Poem)</span>
+          <p id="asg-detail-poem" class="text-xs text-slate-800 leading-relaxed font-medium thai-text"></p>
+        </div>
+      </div>
+
+      <!-- STUDENT PORTAL: UPLOAD VIEW -->
+      <div id="student-upload-section" class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 hidden">
+        <h3 class="font-bold text-slate-900 text-sm">📤 ส่งคลิปการท่องบทกลอน (Submit Recitation Clip)</h3>
+        <form id="student-submit-form" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">เลือกไฟล์วิดีโอหรือเสียง (.mp4, .m4a, .wav) *</label>
+            <input type="file" id="stu-upload-file" accept="video/*,audio/*" required class="block w-full text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 border border-slate-200 rounded-lg cursor-pointer">
+          </div>
+          <button type="submit" id="btn-stu-submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl text-xs transition shadow-sm">
+            ยืนยันส่งงาน (Submit Clip)
+          </button>
+        </form>
+      </div>
+
+      <!-- SUBMISSIONS QUEUE -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex justify-between items-center">
+          <h3 class="font-bold text-slate-900 text-sm" id="sub-list-title">รายการส่งงาน (Submissions Queue)</h3>
+          <span id="sub-count-badge" class="text-xs text-slate-500 font-medium">0 รายการ</span>
+        </div>
+        <div id="submissions-queue-container" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- 4. EVALUATION VIEW FOR TEACHER (หน้าตรวจคะแนนของครู - มีกราฟครบถ้วน) -->
+    <div id="screen-eval-teacher" class="view-panel hidden space-y-6">
+      <div class="flex justify-between items-center">
+        <button onclick="backToAssignmentView()" class="text-xs font-bold text-indigo-600 hover:underline flex items-center space-x-1">
+          <span>⬅ กลับหน้ารายการส่งงาน (Back to Submissions)</span>
+        </button>
+        <span id="eval-result-status" class="text-xs px-3 py-1 rounded-full font-bold">สถานะ (Status)</span>
+      </div>
+
+      <div class="grid grid-cols-12 gap-6">
+        <!-- Left: Dual Players & Return Action -->
+        <div class="col-span-12 lg:col-span-4 space-y-4">
+          <!-- Student Video Player -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h3 id="eval-stu-title" class="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-500 thai-text">คลิปของนักเรียน (Student Clip)</h3>
+            <div class="w-full bg-slate-950 rounded-xl overflow-hidden aspect-video flex items-center justify-center relative shadow-inner">
+              <video id="eval-result-video" class="w-full h-full object-cover" controls></video>
+            </div>
+          </div>
+
+          <!-- Teacher Master Reference Player -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+            <h3 class="font-bold text-slate-900 text-xs uppercase tracking-wider text-indigo-600">เสียงต้นแบบครู (Teacher Reference)</h3>
+            <audio id="eval-result-ref-audio" class="w-full h-8" controls></audio>
+            <p id="ref-audio-empty-msg" class="text-xs text-slate-400 italic hidden">ไม่มีไฟล์เสียงต้นแบบ</p>
+          </div>
+
+          <!-- Teacher Return Score Panel -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h3 class="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-500">บันทึกข้อเสนอแนะเพิ่มเติม (Teacher Note)</h3>
+            <textarea id="teacher-note-input" rows="3" placeholder="พิมพ์คำแนะนำเพิ่มเติมให้นักเรียน..." class="w-full text-xs p-2.5 border border-slate-200 rounded-lg thai-text focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+            <button onclick="executeReturnScore()" id="btn-execute-return" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm">
+              📬 ส่งคะแนนคืนนักเรียน (Return Score)
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Scores, Syllables & Detailed Graphs -->
+        <div class="col-span-12 lg:col-span-8 space-y-5">
+          <!-- Scores Card -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-4 gap-3 items-center">
+            <div class="border-r border-slate-100 pr-2">
+              <span class="text-[11px] text-slate-400 font-semibold block uppercase tracking-wider">คะแนนรวมสุทธิ (Total Score)</span>
+              <div class="flex items-baseline space-x-1 mt-0.5">
+                <span id="res-score-total" class="text-3xl font-black text-indigo-600">0.0</span>
+                <span class="text-xs text-slate-400">/ 100</span>
+              </div>
+            </div>
+            <div>
+              <span class="text-xs text-slate-500 font-medium block">🗣️ การออกเสียงคำ (Pronunciation)</span>
+              <span id="res-score-text" class="text-xl font-bold text-slate-800">0.0</span>
+            </div>
+            <div>
+              <span class="text-xs text-slate-500 font-medium block">🎵 ทำนอง/เอื้อน (Melodic Pitch)</span>
+              <span id="res-score-pitch" class="text-xl font-bold text-slate-800">0.0</span>
+            </div>
+            <div>
+              <span class="text-xs text-slate-500 font-medium block">⏱️ จังหวะ/วรรค (Rhythm & Pauses)</span>
+              <span id="res-score-rhythm" class="text-xl font-bold text-slate-800">0.0</span>
+            </div>
+          </div>
+
+          <!-- Character Alignment -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h4 class="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-400">การตรวจสอบรายคำและพยางค์ (Word & Syllable Verification)</h4>
+            <div id="res-token-container" class="p-4 bg-slate-50 border border-slate-100 rounded-xl leading-loose thai-text text-sm"></div>
+            <div id="res-raw-text" class="p-3 bg-slate-100 rounded-lg thai-text text-xs italic text-slate-600"></div>
+          </div>
+
+          <!-- Technical Graphs with Legend & Axis Descriptions -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+            <h4 class="font-bold text-slate-900 text-xs uppercase tracking-wider text-slate-400">กราฟวิเคราะห์ความสอดคล้องเชิงลึก (Alignment Diagnostics)</h4>
+            
+            <!-- Pitch Graph -->
+            <div class="space-y-2 border border-slate-100 rounded-xl p-3.5 bg-slate-50/50">
+              <img id="res-chart-pitch" class="w-full rounded-lg border" alt="Pitch Chart">
+              <!-- Detailed Explanation -->
+              <div class="p-3 bg-white border border-slate-200 rounded-xl text-[11px] text-slate-600 space-y-1">
+                <span class="font-bold text-slate-900 block">📊 คำอธิบายเส้นและแกนกราฟทำนอง (Pitch Diagnostics Legend):</span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                  <p><span class="inline-block w-3 h-3 bg-blue-600 rounded-sm mr-1"></span> <b>เส้นทึบสีน้ำเงิน:</b> ระดับเสียงทำนองของครูต้นแบบ (Reference)</p>
+                  <p><span class="inline-block w-3 h-3 bg-orange-600 rounded-sm mr-1"></span> <b>เส้นประสีส้ม:</b> ระดับเสียงการท่องของนักเรียน (Student)</p>
+                  <p>• <b>แกน X (Time Frame):</b> ลำดับเวลาตลอดคลิปเสียง (~23 ms ต่อเฟรม)</p>
+                  <p>• <b>แกน Y (Semitone):</b> ความสูง-ต่ำของระดับเสียงดนตรี (กึ่งเสียงดนตรีสัมพันธ์)</p>
+                  <p class="col-span-2 text-slate-500">• <b>เส้นประสีเทาแนวตั้ง:</b> DTW Alignment เส้นจับคู่จังหวะการเอื้อนที่ตรงกัน หากเส้นประเอียงมากแสดงว่าเริ่มเอื้อนเสียงช้าหรือเร็วกว่าครู</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rhythm Graph -->
+            <div class="space-y-2 border border-slate-100 rounded-xl p-3.5 bg-slate-50/50">
+              <img id="res-chart-rhythm" class="w-full rounded-lg border" alt="Rhythm Chart">
+              <!-- Detailed Explanation -->
+              <div class="p-3 bg-white border border-slate-200 rounded-xl text-[11px] text-slate-600 space-y-1">
+                <span class="font-bold text-slate-900 block">📊 คำอธิบายเส้นและแกนกราฟจังหวะ (Rhythm Diagnostics Legend):</span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                  <p><span class="inline-block w-3 h-3 bg-emerald-600 rounded-sm mr-1"></span> <b>เส้นทึบสีเขียว:</b> กรอบพลังงานเสียงและการเว้นวรรคของครูต้นแบบ</p>
+                  <p><span class="inline-block w-3 h-3 bg-red-600 rounded-sm mr-1"></span> <b>เส้นประสีแดง:</b> กรอบพลังงานเสียงของนักเรียน</p>
+                  <p>• <b>แกน X (Time Frame):</b> ลำดับเวลาตลอดคลิปเสียง (~23 ms ต่อเฟรม)</p>
+                  <p>• <b>แกน Y (Normalized Energy):</b> พลังงานความดัง (0.0 = ช่วงเงียบ/หยุดหายใจ, 1.0 = ออกเสียงดังสุด)</p>
+                  <p class="col-span-2 text-slate-500">• <b>หุบกราฟที่แตะ 0:</b> คือจุดหยุดวรรคหายใจ หากหุบกราฟของนักเรียนสั้นกว่าครูแสดงว่าหยุดหายใจเร็วเกินไป</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. STUDENT REPORT VIEW (หน้ารายงานผลของนักเรียน - ไม่มีกราฟ ตามภาพสเก็ตช์) -->
+    <div id="screen-eval-student" class="view-panel hidden max-w-4xl mx-auto space-y-6">
+      <div class="flex justify-between items-center">
+        <button onclick="backToAssignmentView()" class="text-xs font-bold text-indigo-600 hover:underline flex items-center space-x-1">
+          <span>⬅ กลับหน้ารายการการบ้าน (Back to Assignment)</span>
+        </button>
+        <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-3 py-1 rounded-full font-bold">ประกาศผลคะแนนแล้ว (Graded)</span>
+      </div>
+
+      <!-- Total Score Hero Card -->
+      <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex justify-between items-center">
+        <div>
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block">ผลคะแนนรวมสุทธิ (Total Score)</span>
+          <h2 class="text-4xl font-black text-indigo-600 mt-1" id="stu-total-score-badge">Total : 0.0 / 100</h2>
+        </div>
+        <div id="stu-teacher-note-banner" class="max-w-md bg-indigo-50 border border-indigo-100 p-3.5 rounded-2xl text-xs text-indigo-950 hidden">
+          <span class="font-bold block mb-0.5">💬 ข้อเสนอแนะจากอาจารย์:</span>
+          <p id="stu-teacher-note-val" class="italic thai-text leading-relaxed"></p>
+        </div>
+      </div>
+
+      <!-- 3 Criteria Cards with Strengths & Weaknesses (ตามภาพสเก็ตช์) -->
+      <div class="space-y-4">
+        
+        <!-- Criterion 1: Pronunciation -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+          <h3 class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center space-x-2">
+            <span>🗣️</span>
+            <span>การออกเสียงคำ (Pronunciation)</span>
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            <!-- Left Score Box -->
+            <div class="md:col-span-4 bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center flex flex-col justify-center items-center">
+              <span class="text-3xl font-black text-slate-800" id="stu-score-text">0.0</span>
+              <span class="text-xs text-slate-400 font-semibold mt-1">/ 100 คะแนน</span>
+            </div>
+            <!-- Right Strengths & Weaknesses -->
+            <div class="md:col-span-8 space-y-3 text-xs">
+              <div class="space-y-1">
+                <span class="font-bold text-emerald-800 flex items-center space-x-1">
+                  <span>① จุดแข็ง (Strengths):</span>
+                </span>
+                <ul id="stu-text-strengths" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+              <div class="space-y-1">
+                <span class="font-bold text-rose-800 flex items-center space-x-1">
+                  <span>② จุดที่ควรพัฒนา (Weaknesses):</span>
+                </span>
+                <ul id="stu-text-weaknesses" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Criterion 2: Melodic Pitch -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+          <h3 class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center space-x-2">
+            <span>🎵</span>
+            <span>ทำนองและการเอื้อน (Melodic Pitch)</span>
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            <!-- Left Score Box -->
+            <div class="md:col-span-4 bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center flex flex-col justify-center items-center">
+              <span class="text-3xl font-black text-slate-800" id="stu-score-pitch">0.0</span>
+              <span class="text-xs text-slate-400 font-semibold mt-1">/ 100 คะแนน</span>
+            </div>
+            <!-- Right Strengths & Weaknesses -->
+            <div class="md:col-span-8 space-y-3 text-xs">
+              <div class="space-y-1">
+                <span class="font-bold text-emerald-800 flex items-center space-x-1">
+                  <span>① จุดแข็ง (Strengths):</span>
+                </span>
+                <ul id="stu-pitch-strengths" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+              <div class="space-y-1">
+                <span class="font-bold text-rose-800 flex items-center space-x-1">
+                  <span>② จุดที่ควรพัฒนา (Weaknesses):</span>
+                </span>
+                <ul id="stu-pitch-weaknesses" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Criterion 3: Rhythm & Pauses -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+          <h3 class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center space-x-2">
+            <span>⏱️</span>
+            <span>จังหวะและการเว้นวรรค (Rhythm & Pauses)</span>
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            <!-- Left Score Box -->
+            <div class="md:col-span-4 bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center flex flex-col justify-center items-center">
+              <span class="text-3xl font-black text-slate-800" id="stu-score-rhythm">0.0</span>
+              <span class="text-xs text-slate-400 font-semibold mt-1">/ 100 คะแนน</span>
+            </div>
+            <!-- Right Strengths & Weaknesses -->
+            <div class="md:col-span-8 space-y-3 text-xs">
+              <div class="space-y-1">
+                <span class="font-bold text-emerald-800 flex items-center space-x-1">
+                  <span>① จุดแข็ง (Strengths):</span>
+                </span>
+                <ul id="stu-rhythm-strengths" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+              <div class="space-y-1">
+                <span class="font-bold text-rose-800 flex items-center space-x-1">
+                  <span>② จุดที่ควรพัฒนา (Weaknesses):</span>
+                </span>
+                <ul id="stu-rhythm-weaknesses" class="list-disc list-inside text-slate-700 space-y-0.5 thai-text pl-1"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL 1: CREATE ASSIGNMENT -->
+  <div id="create-asg-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-base text-slate-900">สร้างการบ้านใหม่ (Create Assignment)</h3>
+        <button onclick="closeModal('create-asg-modal')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+      </div>
+      <form id="create-asg-form" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">หัวข้องาน (Assignment Title)</label>
+          <input type="text" id="new-asg-title" required placeholder="เช่น โคลงสี่สุภาพ ลิลิตพระลอ" class="w-full text-xs p-2.5 border border-slate-200 rounded-lg thai-text">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เนื้อหาบทกลอนฉบับเต็ม (Poem Text) *</label>
+          <textarea id="new-asg-poem" rows="3" required class="w-full text-xs p-2.5 border border-slate-200 rounded-lg thai-text leading-relaxed" placeholder="วางเนื้อหาบทกลอนที่ให้นักเรียนท่อง..."></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">คลิป/เสียงครูต้นแบบ (Teacher Reference Media) *</label>
+          <input type="file" id="new-asg-audio" accept="audio/*,video/*" required class="block w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700 border border-slate-200 rounded-lg cursor-pointer">
+        </div>
+
+        <div class="border-t border-slate-100 pt-3 space-y-2">
+          <label class="block text-xs font-bold text-slate-800">สัดส่วนค่าน้ำหนักคะแนน (Total 100%)</label>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">การออกเสียงคำ (%)</span>
+              <input type="number" id="w-text" value="40" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('w-text','w-pitch','w-rhythm','weight-indicator','weight-error','btn-save-asg')">
+            </div>
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">ทำนอง/เอื้อน (%)</span>
+              <input type="number" id="w-pitch" value="35" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('w-text','w-pitch','w-rhythm','weight-indicator','weight-error','btn-save-asg')">
+            </div>
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">จังหวะ/วรรค (%)</span>
+              <input type="number" id="w-rhythm" value="25" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('w-text','w-pitch','w-rhythm','weight-indicator','weight-error','btn-save-asg')">
+            </div>
+          </div>
+          <div class="flex justify-between items-center text-xs mt-1">
+            <span class="text-slate-500">ผลรวม (Total):</span>
+            <span id="weight-indicator" class="font-bold text-emerald-600">100%</span>
+          </div>
+          <p id="weight-error" class="text-xs text-rose-500 font-semibold hidden">⚠️ ผลรวมต้องได้ 100% พอดี</p>
+        </div>
+
+        <button type="submit" id="btn-save-asg" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl text-xs transition">บันทึกและสั่งงาน (Save & Publish)</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 2: EDIT / CONFIG ASSIGNMENT -->
+  <div id="edit-asg-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-base text-slate-900">แก้ไขการบ้านและเกณฑ์คะแนน (Config Assignment)</h3>
+        <button onclick="closeModal('edit-asg-modal')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+      </div>
+      <form id="edit-asg-form" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">หัวข้องาน (Assignment Title)</label>
+          <input type="text" id="edit-asg-title" required class="w-full text-xs p-2.5 border border-slate-200 rounded-lg thai-text">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เนื้อหาบทกลอนฉบับเต็ม (Poem Text) *</label>
+          <textarea id="edit-asg-poem" rows="3" required class="w-full text-xs p-2.5 border border-slate-200 rounded-lg thai-text leading-relaxed"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เปลี่ยนไฟล์คลิป/เสียงต้นแบบ (Change Reference Media)</label>
+          <input type="file" id="edit-asg-audio" accept="audio/*,video/*" class="block w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:bg-indigo-50 file:text-indigo-700 border border-slate-200 rounded-lg cursor-pointer">
+        </div>
+
+        <div class="border-t border-slate-100 pt-3 space-y-2">
+          <label class="block text-xs font-bold text-slate-800">สัดส่วนค่าน้ำหนักคะแนน (Total 100%)</label>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">การออกเสียงคำ (%)</span>
+              <input type="number" id="edit-w-text" value="40" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('edit-w-text','edit-w-pitch','edit-w-rhythm','edit-weight-indicator','edit-weight-error','btn-update-asg')">
+            </div>
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">ทำนอง/เอื้อน (%)</span>
+              <input type="number" id="edit-w-pitch" value="35" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('edit-w-text','edit-w-pitch','edit-w-rhythm','edit-weight-indicator','edit-weight-error','btn-update-asg')">
+            </div>
+            <div>
+              <span class="text-[11px] text-slate-600 block mb-1">จังหวะ/วรรค (%)</span>
+              <input type="number" id="edit-w-rhythm" value="25" min="0" max="100" class="w-full text-xs p-2 border rounded-lg" oninput="checkSum('edit-w-text','edit-w-pitch','edit-w-rhythm','edit-weight-indicator','edit-weight-error','btn-update-asg')">
+            </div>
+          </div>
+          <div class="flex justify-between items-center text-xs mt-1">
+            <span class="text-slate-500">ผลรวม (Total):</span>
+            <span id="edit-weight-indicator" class="font-bold text-emerald-600">100%</span>
+          </div>
+          <p id="edit-weight-error" class="text-xs text-rose-500 font-semibold hidden">⚠️ ผลรวมต้องได้ 100% พอดี</p>
+        </div>
+
+        <button type="submit" id="btn-update-asg" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-xs transition">บันทึกการเปลี่ยนแปลง (Update Config)</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = null;
+    let currentClassId = null;
+    let currentAsgId = null;
+    let currentSubId = null;
+    let dbState = null;
+
+    function setQuickLogin(email) {
+      document.getElementById('login-email').value = email;
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value;
+      const fd = new FormData();
+      fd.append('email', email);
+
+      try {
+        const res = await fetch('/api/login', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.detail);
+          return;
+        }
+        currentUser = await res.json();
+        
+        document.getElementById('screen-login').classList.add('hidden');
+        document.getElementById('app-header').classList.remove('hidden');
+        document.getElementById('app-main').classList.remove('hidden');
+
+        document.getElementById('user-display-name').innerText = currentUser.name;
+        const rolePill = document.getElementById('role-pill');
+        rolePill.innerText = currentUser.role === 'teacher' ? 'อาจารย์ (Teacher)' : 'นักเรียน (Student)';
+        rolePill.className = currentUser.role === 'teacher' 
+          ? "text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200"
+          : "text-xs px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200";
+
+        document.getElementById('btn-open-create-asg').style.display = currentUser.role === 'teacher' ? 'block' : 'none';
+
+        await loadData();
+      } catch (err) {
+        alert("Login error: " + err.message);
+      }
+    });
+
+    function logout() {
+      currentUser = null;
+      document.getElementById('screen-login').classList.remove('hidden');
+      document.getElementById('app-header').classList.add('hidden');
+      document.getElementById('app-main').classList.add('hidden');
+    }
+
+    async function loadData() {
+      const res = await fetch(`/api/classroom-data?email=${encodeURIComponent(currentUser.email)}`);
+      dbState = await res.json();
+      renderHomeClasses();
+    }
+
+    function renderHomeClasses() {
+      const grid = document.getElementById('classes-grid');
+      grid.innerHTML = '';
+      
+      document.getElementById('home-title').innerText = currentUser.role === 'teacher' ? 'ชั้นเรียนทั้งหมดที่สอน (Teacher Classrooms)' : 'ชั้นเรียนของฉัน (Enrolled Classroom)';
+      document.getElementById('home-subtitle').innerText = currentUser.role === 'teacher' ? 'เลือกชั้นเรียนเพื่อจัดการการบ้าน ตรวจคลิป และส่งคะแนนคืนนักเรียน' : 'เข้าสู่ห้องเรียนเพื่อส่งคลิปท่องบทกลอนและดูผลการประเมิน';
+
+      dbState.classes.forEach(c => {
+        const asgCount = dbState.assignments.filter(a => a.class_id === c.id).length;
+        grid.innerHTML += `
+          <div onclick="selectClass('${c.id}')" class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between group">
+            <div class="p-5 bg-gradient-to-r ${c.theme_color || 'from-indigo-600 to-blue-700'} text-white">
+              <h3 class="font-black text-xl tracking-tight thai-text">${c.name}</h3>
+              <p class="text-xs text-white/90 mt-1 font-medium thai-text">${c.subject}</p>
+            </div>
+            <div class="p-5 flex justify-between items-center">
+              <span class="text-xs font-semibold text-slate-500">${asgCount} การบ้าน (Assignments)</span>
+              <span class="text-xs text-indigo-600 font-bold group-hover:translate-x-1 transition-transform inline-block">เข้าชั้นเรียน (Enter) ➔</span>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function selectClass(classId) {
+      currentClassId = classId;
+      const cls = dbState.classes.find(c => c.id === classId);
+      document.getElementById('class-view-name').innerText = cls.name;
+      document.getElementById('class-view-subject').innerText = cls.subject;
+
+      // ซิงค์สีพื้นหลัง Banner ให้ตรงกับการ์ดหน้าแรก
+      document.getElementById('class-banner').className = `rounded-2xl p-6 text-white bg-gradient-to-r ${cls.theme_color || 'from-indigo-600 to-blue-700'} shadow-md flex justify-between items-end`;
+
+      document.getElementById('breadcrumb-bar').classList.remove('hidden');
+      document.getElementById('breadcrumb-bar').classList.add('flex');
+      document.getElementById('bc-class').innerText = cls.name;
+      document.getElementById('bc-sep').classList.add('hidden');
+      document.getElementById('bc-asg').classList.add('hidden');
+
+      renderClassAssignments();
+      showScreen('class-view');
+    }
+
+    function renderClassAssignments() {
+      const list = document.getElementById('asg-list-container');
+      list.innerHTML = '';
+      const asgs = dbState.assignments.filter(a => a.class_id === currentClassId);
+
+      if (asgs.length === 0) {
+        list.innerHTML = `
+          <div class="p-10 text-center bg-white rounded-2xl border border-slate-200 text-xs text-slate-400 space-y-2">
+            <span class="text-3xl block">📋</span>
+            <p class="font-semibold text-slate-600">ยังไม่มี Assignment ในชั้นเรียนนี้</p>
+            <p>${currentUser.role === 'teacher' ? 'กดปุ่ม "➕ สร้างการบ้านใหม่" ด้านบนเพื่อเพิ่มบทเรียน' : 'รออาจารย์ผู้สอนมอบหมายบทกลอน'}</p>
+          </div>`;
+        return;
+      }
+
+      asgs.forEach(a => {
+        list.innerHTML += `
+          <div onclick="selectAssignment('${a.id}')" class="p-4 bg-white hover:bg-indigo-50/40 border border-slate-200 hover:border-indigo-300 rounded-2xl shadow-sm cursor-pointer transition flex justify-between items-center">
+            <div class="space-y-1">
+              <h4 class="text-sm font-bold text-slate-900 thai-text">${a.title}</h4>
+              <p class="text-xs text-slate-500 thai-text">${a.poem_text.substring(0, 60)}...</p>
+              <div class="flex items-center space-x-2 text-[11px] text-slate-500 pt-1">
+                <span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-semibold">ค่าน้ำหนัก: คำ ${a.weights.text}% | ทำนอง ${a.weights.pitch}% | จังหวะ ${a.weights.rhythm}%</span>
+                <span>• ${a.submissions.length} ส่งงานแล้ว</span>
+              </div>
+            </div>
+            <button class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-semibold shadow-sm transition">เข้าสู่การบ้าน (Enter Task) ➔</button>
+          </div>
+        `;
+      });
+    }
+
+    function selectAssignment(asgId) {
+      currentAsgId = asgId;
+      const asg = dbState.assignments.find(a => a.id === asgId);
+      
+      document.getElementById('asg-detail-title').innerText = asg.title;
+      document.getElementById('asg-detail-desc').innerText = asg.description || '';
+      document.getElementById('asg-detail-weights').innerText = `คำ ${asg.weights.text}% | ทำนอง ${asg.weights.pitch}% | จังหวะ ${asg.weights.rhythm}%`;
+      document.getElementById('asg-detail-poem').innerText = asg.poem_text;
+
+      document.getElementById('btn-edit-asg-trigger').style.display = currentUser.role === 'teacher' ? 'inline-block' : 'none';
+
+      const masterAudioCard = document.getElementById('master-audio-card');
+      const masterAudio = document.getElementById('asg-master-audio');
+      if (asg.ref_audio_url) {
+        masterAudio.src = asg.ref_audio_url;
+        masterAudioCard.classList.remove('hidden');
+      } else {
+        masterAudioCard.classList.add('hidden');
+      }
+
+      document.getElementById('bc-sep').classList.remove('hidden');
+      document.getElementById('bc-asg').classList.remove('hidden');
+      document.getElementById('bc-asg').innerText = asg.title;
+
+      const stuUploadSec = document.getElementById('student-upload-section');
+      stuUploadSec.style.display = currentUser.role === 'student' ? 'block' : 'none';
+
+      renderSubmissionsQueue(asg);
+      showScreen('asg-details');
+    }
+
+    function renderSubmissionsQueue(asg) {
+      const container = document.getElementById('submissions-queue-container');
+      container.innerHTML = '';
+      
+      let subs = asg.submissions;
+      if (currentUser.role === 'student') {
+        subs = asg.submissions.filter(s => s.student_email === currentUser.email);
+      }
+
+      document.getElementById('sub-count-badge').innerText = `${subs.length} รายการ (Submissions)`;
+
+      if (subs.length === 0) {
+        container.innerHTML = '<div class="p-6 text-center text-xs text-slate-400">ยังไม่มีการส่งคลิปในรายการนี้</div>';
+        return;
+      }
+
+      subs.forEach(s => {
+        const isReturned = s.status === 'Returned';
+        const isEvaluated = s.status === 'Evaluated';
+        let actionBtn = '';
+        
+        if (currentUser.role === 'teacher') {
+          if (isReturned || isEvaluated) {
+            actionBtn = `<button onclick="viewEvaluation('${s.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs px-3 py-1.5 rounded-lg font-semibold transition">ดูผลตรวจ & ฟังคลิป (Review) ➔</button>`;
+          } else {
+            actionBtn = `<button onclick="runTeacherEvaluation('${s.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-semibold transition shadow-sm">🚀 กดประมวลผลตรวจ (Evaluate)</button>`;
+          }
+        } else {
+          if (isReturned) {
+            actionBtn = `<button onclick="viewEvaluation('${s.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 rounded-lg font-semibold transition shadow-sm">ดูผลคะแนน & จุดแข็งจุดอ่อน (View Report) ➔</button>`;
+          } else if (isEvaluated) {
+            actionBtn = `<span class="text-xs text-indigo-600 font-medium">อาจารย์ตรวจแล้ว (รออาจารย์กดส่งคะแนนคืน)</span>`;
+          } else {
+            actionBtn = `<span class="text-xs text-amber-600 font-medium">รอการตรวจจากอาจารย์ผู้สอน</span>`;
+          }
+        }
+
+        const statusBadgeColor = isReturned 
+          ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' 
+          : (isEvaluated ? 'text-indigo-700 bg-indigo-50 border border-indigo-200' : 'text-amber-700 bg-amber-50 border border-amber-200');
+
+        container.innerHTML += `
+          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center">
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold text-slate-800 thai-text">${s.student_name}</span>
+                <span class="text-[11px] ${statusBadgeColor} px-2 py-0.5 rounded-full font-semibold">${s.status}</span>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-0.5">${s.student_email} ${s.evaluation ? `• คะแนนรวม: ${s.evaluation.total_score}/100` : ''}</p>
+            </div>
+            <div>${actionBtn}</div>
+          </div>
+        `;
+      });
+    }
+
+    document.getElementById('student-submit-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-stu-submit');
+      btn.disabled = true;
+      btn.innerText = "กำลังอัปโหลดส่งคลิป...";
+
+      const fd = new FormData();
+      fd.append('assignment_id', currentAsgId);
+      fd.append('student_email', currentUser.email);
+      fd.append('student_name', currentUser.name);
+      fd.append('student_video', document.getElementById('stu-upload-file').files[0]);
+
+      try {
+        const res = await fetch('/api/submit-recitation', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error("ส่งงานไม่สำเร็จ");
+        alert("ส่งงานเรียบร้อยแล้ว อาจารย์จะสามารถกดประมวลผลคะแนนได้");
+        document.getElementById('stu-upload-file').value = '';
+        await loadData();
+        selectAssignment(currentAsgId);
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "ยืนยันส่งงาน (Submit Clip)";
+      }
+    });
+
+    async function runTeacherEvaluation(subId) {
+      if (!confirm("ต้องการเริ่มการประมวลผลคลิปนี้ด้วยโมเดล AI หรือไม่?")) return;
+      
+      const fd = new FormData();
+      fd.append('assignment_id', currentAsgId);
+      fd.append('submission_id', subId);
+
+      try {
+        const res = await fetch('/api/evaluate-submission', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error("การประมวลผลคะแนนล้มเหลว");
+        await loadData();
+        selectAssignment(currentAsgId);
+        viewEvaluation(subId);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // View Evaluation แยกหน้าตาม Role
+    function viewEvaluation(subId) {
+      currentSubId = subId;
+      const asg = dbState.assignments.find(a => a.id === currentAsgId);
+      const sub = asg.submissions.find(s => s.id === subId);
+      const ev = sub.evaluation;
+
+      if (currentUser.role === 'teacher') {
+        // --- แสดงหน้าสำหรับครู (Teacher View พร้อมกราฟ) ---
+        document.getElementById('eval-stu-title').innerText = `${sub.student_name} (${sub.student_email})`;
+        document.getElementById('eval-result-video').src = sub.video_url;
+
+        const refPlayer = document.getElementById('eval-result-ref-audio');
+        const emptyMsg = document.getElementById('ref-audio-empty-msg');
+        if (ev.ref_audio_url) {
+          refPlayer.src = ev.ref_audio_url;
+          refPlayer.classList.remove('hidden');
+          emptyMsg.classList.add('hidden');
+        } else {
+          refPlayer.classList.add('hidden');
+          emptyMsg.classList.remove('hidden');
+        }
+
+        const statusPill = document.getElementById('eval-result-status');
+        statusPill.innerText = sub.status;
+        statusPill.className = sub.status === 'Returned' 
+          ? "text-xs px-3 py-1 rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" 
+          : "text-xs px-3 py-1 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-200";
+
+        document.getElementById('res-score-total').innerText = ev.total_score;
+        document.getElementById('res-score-text').innerText = ev.text_score;
+        document.getElementById('res-score-pitch').innerText = ev.pitch_score;
+        document.getElementById('res-score-rhythm').innerText = ev.rhythm_score;
+
+        const container = document.getElementById('res-token-container');
+        container.innerHTML = '';
+        ev.aligned_tokens.forEach(tok => {
+          const span = document.createElement('span');
+          span.innerText = tok.char;
+          span.title = tok.tooltip;
+          if (tok.status === 'correct') span.className = 'token-char token-correct';
+          else if (tok.status === 'error_pronounce') span.className = 'token-char token-error';
+          else if (tok.status === 'error_omission') span.className = 'token-char token-omission';
+          container.appendChild(span);
+        });
+
+        document.getElementById('res-raw-text').innerText = `ข้อความที่ระบบถอดเสียงได้: "${ev.transcribed_text}"`;
+        document.getElementById('res-chart-pitch').src = `${ev.chart_pitch}?t=${new Date().getTime()}`;
+        document.getElementById('res-chart-rhythm').src = `${ev.chart_rhythm}?t=${new Date().getTime()}`;
+
+        document.getElementById('teacher-note-input').value = sub.teacher_note || '';
+
+        showScreen('eval-teacher');
+
+      } else {
+        // --- แสดงหน้าสำหรับนักเรียน (Student View ตามภาพสเก็ตช์ - ไม่มีกราฟ) ---
+        document.getElementById('stu-total-score-badge').innerText = `Total : ${ev.total_score} / 100`;
+        
+        const noteBanner = document.getElementById('stu-teacher-note-banner');
+        if (sub.teacher_note) {
+          noteBanner.classList.remove('hidden');
+          document.getElementById('stu-teacher-note-val').innerText = sub.teacher_note;
+        } else {
+          noteBanner.classList.add('hidden');
+        }
+
+        // 3 Score Boxes
+        document.getElementById('stu-score-text').innerText = `${ev.text_score}`;
+        document.getElementById('stu-score-pitch').innerText = `${ev.pitch_score}`;
+        document.getElementById('stu-score-rhythm').innerText = `${ev.rhythm_score}`;
+
+        // Populate Strengths & Weaknesses
+        const fb = ev.rubric_feedback;
+        const setBullets = (id, arr) => {
+          const el = document.getElementById(id);
+          el.innerHTML = arr.map(text => `<li>${text}</li>`).join('');
+        };
+
+        if (fb) {
+          setBullets('stu-text-strengths', fb.pronunciation.strengths);
+          setBullets('stu-text-weaknesses', fb.pronunciation.weaknesses);
+
+          setBullets('stu-pitch-strengths', fb.pitch.strengths);
+          setBullets('stu-pitch-weaknesses', fb.pitch.weaknesses);
+
+          setBullets('stu-rhythm-strengths', fb.rhythm.strengths);
+          setBullets('stu-rhythm-weaknesses', fb.rhythm.weaknesses);
+        }
+
+        showScreen('eval-student');
+      }
+    }
+
+    async function executeReturnScore() {
+      const btn = document.getElementById('btn-execute-return');
+      btn.disabled = true;
+      btn.innerText = "กำลังส่งคืนคะแนน...";
+
+      const note = document.getElementById('teacher-note-input').value;
+      const fd = new FormData();
+      fd.append('assignment_id', currentAsgId);
+      fd.append('submission_id', currentSubId);
+      fd.append('teacher_note', note);
+
+      try {
+        const res = await fetch('/api/return-score', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error("Return score failed");
+        alert("ส่งคะแนนและข้อเสนอแนะคืนนักเรียนเรียบร้อยแล้ว");
+        await loadData();
+        selectAssignment(currentAsgId);
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "📬 ส่งคะแนนคืนนักเรียน (Return Score)";
+      }
+    }
+
+    function backToAssignmentView() {
+      selectAssignment(currentAsgId);
+    }
+
+    function showScreen(name) {
+      document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden'));
+      const target = document.getElementById(`screen-${name}`);
+      if (target) target.classList.remove('hidden');
+      if (name === 'home') document.getElementById('breadcrumb-bar').classList.add('hidden');
+    }
+
+    function goToClassView() {
+      if (currentClassId) selectClass(currentClassId);
+      else showScreen('home');
+    }
+
+    function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function openEditAsgModal() {
+      const asg = dbState.assignments.find(a => a.id === currentAsgId);
+      document.getElementById('edit-asg-title').value = asg.title;
+      document.getElementById('edit-asg-poem').value = asg.poem_text;
+      document.getElementById('edit-w-text').value = asg.weights.text;
+      document.getElementById('edit-w-pitch').value = asg.weights.pitch;
+      document.getElementById('edit-w-rhythm').value = asg.weights.rhythm;
+      checkSum('edit-w-text','edit-w-pitch','edit-w-rhythm','edit-weight-indicator','edit-weight-error','btn-update-asg');
+      openModal('edit-asg-modal');
+    }
+
+    function checkSum(idText, idPitch, idRhythm, idIndicator, idError, idBtn) {
+      const wt = parseInt(document.getElementById(idText).value) || 0;
+      const wp = parseInt(document.getElementById(idPitch).value) || 0;
+      const wr = parseInt(document.getElementById(idRhythm).value) || 0;
+      const sum = wt + wp + wr;
+      const ind = document.getElementById(idIndicator);
+      const err = document.getElementById(idError);
+      const btn = document.getElementById(idBtn);
+
+      ind.innerText = `${sum}%`;
+      if (sum !== 100) {
+        ind.className = "font-bold text-rose-600";
+        err.classList.remove('hidden');
+        btn.disabled = true;
+      } else {
+        ind.className = "font-bold text-emerald-600";
+        err.classList.add('hidden');
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('create-asg-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      fd.append('class_id', currentClassId);
+      fd.append('title', document.getElementById('new-asg-title').value);
+      fd.append('poem_text', document.getElementById('new-asg-poem').value);
+      fd.append('w_text', document.getElementById('w-text').value);
+      fd.append('w_pitch', document.getElementById('w-pitch').value);
+      fd.append('w_rhythm', document.getElementById('w-rhythm').value);
+      
+      const audioInput = document.getElementById('new-asg-audio');
+      if (audioInput.files.length > 0) fd.append('teacher_audio', audioInput.files[0]);
+
+      const res = await fetch('/api/create-assignment', { method: 'POST', body: fd });
+      if (res.ok) {
+        closeModal('create-asg-modal');
+        await loadData();
+        selectClass(currentClassId);
+      } else {
+        alert("Failed to create assignment");
+      }
+    });
+
+    document.getElementById('edit-asg-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      fd.append('title', document.getElementById('edit-asg-title').value);
+      fd.append('poem_text', document.getElementById('edit-asg-poem').value);
+      fd.append('w_text', document.getElementById('edit-w-text').value);
+      fd.append('w_pitch', document.getElementById('edit-w-pitch').value);
+      fd.append('w_rhythm', document.getElementById('edit-w-rhythm').value);
+      
+      const audioInput = document.getElementById('edit-asg-audio');
+      if (audioInput.files.length > 0) fd.append('teacher_audio', audioInput.files[0]);
+
+      const res = await fetch(`/api/update-assignment/${currentAsgId}`, { method: 'PUT', body: fd });
+      if (res.ok) {
+        closeModal('edit-asg-modal');
+        await loadData();
+        selectAssignment(currentAsgId);
+      } else {
+        alert("Failed to update assignment");
+      }
+    });
+  </script>
+</body>
+</html>
