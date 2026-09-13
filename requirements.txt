@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+librosa
+numpy
+torch
+matplotlib
+fastdtw
+transformers
+jiwer
+soundfile
+imageio-ffmpeg
